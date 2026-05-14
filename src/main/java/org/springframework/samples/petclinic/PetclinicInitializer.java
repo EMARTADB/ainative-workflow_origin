@@ -82,9 +82,10 @@ public class PetclinicInitializer extends AbstractDispatcherServletInitializer {
 
     @Override
     protected void customizeRegistration(ServletRegistration.Dynamic registration) {
-        // Enable multipart support: max file size 2 MB, max request size 2 MB
-        long maxSize = 2L * 1024 * 1024; // 2 MB
-        registration.setMultipartConfig(new MultipartConfigElement(null, maxSize, maxSize, 0));
+        // Enable multipart support: max file size 2 MB, max request size 2 MB + overhead
+        long maxFileSize = 2L * 1024 * 1024;          // 2 MB file limit
+        long maxRequestSize = maxFileSize + 200_000L;  // 2 MB + ~200 KB multipart overhead
+        registration.setMultipartConfig(new MultipartConfigElement(null, maxFileSize, maxRequestSize, 0));
     }
 
 }
