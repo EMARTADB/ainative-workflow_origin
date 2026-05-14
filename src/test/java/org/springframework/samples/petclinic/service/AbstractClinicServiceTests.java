@@ -22,8 +22,11 @@ import java.time.LocalDate;
 import java.util.Collection;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectRetrievalFailureException;
 import org.springframework.samples.petclinic.model.Owner;
 import org.springframework.samples.petclinic.model.Pet;
 import org.springframework.samples.petclinic.model.PetType;
@@ -33,6 +36,11 @@ import org.springframework.samples.petclinic.service.PetTransferException;
 import org.springframework.samples.petclinic.util.EntityUtils;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.transaction.annotation.Transactional;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 /**
  * <p> Base class for {@link ClinicService} integration tests. </p> <p> Subclasses should specify Spring context
@@ -343,6 +351,76 @@ abstract class AbstractClinicServiceTests {
         assertThatExceptionOfType(PetTransferException.class)
             .isThrownBy(() -> this.clinicService.transferPet(1, 2, "integration-test"))
             .satisfies(e -> assertThat(e.getReason()).isEqualTo(PetTransferException.Reason.PENDING_VISITS));
+    }
+
+    // ---- Delete pet integration tests (9.1 – 9.3) ----
+
+    @Test
+    @Transactional
+    public void testDeletePet() {
+        // 9.1: assert pet is removed after deletion
+        Pet pet = this.clinicService.findPetById(1); // Leo, owner 1, no visits
+        assertThat(pet).isNotNull();
+
+        this.clinicService.deletePet(pet);
+
+        // JDBC backend throws ObjectRetrievalFailureException when not found; JPA returns null
+        boolean petGone;
+        try {
+            petGone = this.clinicService.findPetById(1) == null;
+        } catch (ObjectRetrievalFailureException e) {
+            petGone = true;
+        }
+        assertThat(petGone).isTrue();
+    }
+
+    @Test
+    @Transactional
+    public void testDeletePetCascadesVisits() {
+        // 9.2: assert all visits for the pet are removed after deletion
+        Pet pet = this.clinicService.findPetById(7); // Samantha, owner 6, has 2 visits
+        assertThat(pet.getVisits()).isNotEmpty();
+
+        this.clinicService.deletePet(pet);
+
+        // JDBC's findVisitsByPetId queries the pet first and throws if not found
+        boolean visitsGone;
+        try {
+            Collection<Visit> visits = this.clinicService.findVisitsByPetId(7);
+            visitsGone = visits.isEmpty();
+        } catch (EmptyResultDataAccessException e) {
+            visitsGone = true; // JDBC backend: pet gone means visits are gone too
+        }
+        assertThat(visitsGone).isTrue();
+
+        boolean petGone;
+        try {
+            petGone = this.clinicService.findPetById(7) == null;
+        } catch (ObjectRetrievalFailureException e) {
+            petGone = true;
+        }
+        assertThat(petGone).isTrue();
+    }
+
+    @Test
+    @Transactional
+    public void testDeletePetNotFound() {
+        // 9.3: assert WARN log is emitted for non-existent pet ID
+        Logger serviceLogger = (Logger) LoggerFactory.getLogger(ClinicServiceImpl.class);
+        ListAppender<ILoggingEvent> listAppender = new ListAppender<>();
+        listAppender.start();
+        serviceLogger.addAppender(listAppender);
+
+        Pet nonExistent = new Pet();
+        nonExistent.setId(9999);
+        this.clinicService.deletePet(nonExistent);
+
+        serviceLogger.detachAppender(listAppender);
+
+        boolean hasWarn = listAppender.list.stream()
+            .anyMatch(e -> e.getLevel() == Level.WARN
+                && e.getFormattedMessage().contains("9999"));
+        assertThat(hasWarn).isTrue();
     }
 
 

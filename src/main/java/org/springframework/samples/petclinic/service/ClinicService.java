@@ -68,4 +68,12 @@ public interface ClinicService {
      */
     void transferPet(int petId, int newOwnerId, String performedBy);
 
+    /**
+     * Permanently delete a pet and all its associated visits in a single atomic transaction.
+     * Emits a WARN log if the pet does not exist; emits an ERROR log on unexpected failure.
+     *
+     * @param pet the {@code Pet} to delete
+     */
+    void deletePet(Pet pet);
+
 }

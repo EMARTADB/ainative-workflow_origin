@@ -15,6 +15,8 @@
  */
 package org.springframework.samples.petclinic.web;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.samples.petclinic.model.Owner;
 import org.springframework.samples.petclinic.model.Pet;
 import org.springframework.samples.petclinic.model.PetPhoto;
@@ -50,6 +52,7 @@ import org.springframework.beans.propertyeditors.StringTrimmerEditor;
 @RequestMapping("/owners/{ownerId}")
 public class PetController {
 
+    private static final Logger log = LoggerFactory.getLogger(PetController.class);
     private static final String VIEWS_PETS_CREATE_OR_UPDATE_FORM = "pets/createOrUpdatePetForm";
     private static final long MAX_PHOTO_SIZE = 2L * 1024 * 1024; // 2 MB
     private static final List<String> ALLOWED_CONTENT_TYPES = Arrays.asList("image/jpeg", "image/png");
@@ -166,6 +169,18 @@ public class PetController {
     public String deletePhoto(@PathVariable("petId") int petId) {
         petPhotoService.deleteByPetId(petId);
         return "redirect:/owners/{ownerId}";
+    }
+
+    @PostMapping(value = "/pets/{petId}/delete")
+    public String deletePet(@PathVariable("ownerId") int ownerId,
+                            @PathVariable("petId") int petId) {
+        Pet pet = this.clinicService.findPetById(petId);
+        if (pet == null) {
+            log.warn("Delete requested for non-existent pet_id={}, owner_id={}", petId, ownerId);
+            return "redirect:/owners/" + ownerId;
+        }
+        this.clinicService.deletePet(pet);
+        return "redirect:/owners/" + ownerId;
     }
 
     @GetMapping(value = "/pets/{petId}/photo")

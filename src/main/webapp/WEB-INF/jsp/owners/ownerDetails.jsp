@@ -115,6 +115,17 @@
                                 </spring:url>
                                 <a href="${fn:escapeXml(transferUrl)}">Transfer Ownership</a>
                             </td>
+                            <td>
+                                <spring:url value="/owners/{ownerId}/pets/{petId}/delete" var="deleteUrl">
+                                    <spring:param name="ownerId" value="${owner.id}"/>
+                                    <spring:param name="petId" value="${pet.id}"/>
+                                </spring:url>
+                                <form method="post" action="${fn:escapeXml(deleteUrl)}" style="display:inline;">
+                                    <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}"/>
+                                    <button type="submit" class="btn btn-xs btn-danger"
+                                            onclick="return confirm('Are you sure you want to delete this pet?');">Delete Pet</button>
+                                </form>
+                            </td>
                         </tr>
                     </table>
                 </td>

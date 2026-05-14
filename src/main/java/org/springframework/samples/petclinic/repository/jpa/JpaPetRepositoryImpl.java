@@ -62,4 +62,10 @@ public class JpaPetRepositoryImpl implements PetRepository {
         }
     }
 
+    @Override
+    public void deletePet(Pet pet) {
+        Pet managed = this.em.contains(pet) ? pet : this.em.merge(pet);
+        this.em.remove(managed);
+    }
+
 }

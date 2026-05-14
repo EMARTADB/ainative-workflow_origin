@@ -31,6 +31,7 @@ import org.springframework.samples.petclinic.repository.PetRepository;
 import org.springframework.samples.petclinic.repository.PetTransferRepository;
 import org.springframework.samples.petclinic.repository.VetRepository;
 import org.springframework.samples.petclinic.repository.VisitRepository;
+import org.springframework.orm.ObjectRetrievalFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -164,6 +165,27 @@ public class ClinicServiceImpl implements ClinicService {
             throw e;
         } catch (Exception e) {
             log.error("Unexpected error during transfer of pet_id={}", petId, e);
+            throw e;
+        }
+    }
+
+    @Override
+    @Transactional
+    public void deletePet(Pet pet) {
+        try {
+            Pet existing;
+            try {
+                existing = petRepository.findById(pet.getId());
+            } catch (ObjectRetrievalFailureException e) {
+                existing = null;
+            }
+            if (existing == null) {
+                log.warn("deletePet called for non-existent pet_id={}", pet.getId());
+                return;
+            }
+            petRepository.deletePet(existing);
+        } catch (Exception e) {
+            log.error("Unexpected error during deletion of pet_id={}", pet.getId(), e);
             throw e;
         }
     }

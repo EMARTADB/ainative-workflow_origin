@@ -34,4 +34,14 @@ public interface SpringDataPetRepository extends PetRepository, Repository<Pet, 
     @Override
     @Query("SELECT ptype FROM PetType ptype ORDER BY ptype.name")
     List<PetType> findPetTypes();
+
+    /**
+     * Spring Data JPA-provided delete — used by the default {@link #deletePet} implementation.
+     */
+    void delete(Pet pet);
+
+    @Override
+    default void deletePet(Pet pet) {
+        delete(pet);
+    }
 }
