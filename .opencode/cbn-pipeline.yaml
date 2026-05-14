@@ -1,0 +1,181 @@
+# Coding-by-NTTDATA (CbN) Pipeline Configuration
+# This file is the single source of truth for pipeline routing logic.
+# The orchestrator agent reads this at startup and uses it to drive all stage transitions.
+# The cbn-health agent can propose or apply changes to this file.
+#
+# Artifact dependencies and produced artifacts are NOT listed here — they are defined
+# exclusively in the openspec schema.yaml and resolved at runtime via `openspec status --json`.
+
+pipeline:
+  name: cbn
+  full_name: "Coding-by-NTTDATA"
+  description: "Spec-driven development pipeline: requirements → definition → construction → validation → archive"
+
+  # Global cycle policy — overridden per transition when specified
+  cycle_policy:
+    max_retries: 3
+    on_max_retries: user      # "user" | "abort" | <stage-id>
+
+  # Status signal prefix emitted by subagents at the end of their output.
+  # The orchestrator parses lines starting with this prefix to determine routing.
+  step_status_prefix: "STEP_STATUS"
+
+  stages:
+
+    - id: functional-requirements
+      agent: cbn-1-functional-requirements
+      prompt: .opencode/prompts/cbn-1-functional-requirements.md
+      session: stateless
+      # Forward start: always fresh — discovery must not be biased by prior runs.
+      optional: false
+      on_success:
+        goto: technical-requirements
+        session: stateless
+      on_failure:
+        - condition: incomplete_input
+          goto: user
+          notify: "Functional requirements could not be completed. User input is required."
+
+    - id: technical-requirements
+      agent: cbn-2-technical-requirements
+      prompt: .opencode/prompts/cbn-2-technical-requirements.md
+      session: stateless
+      optional: false
+      on_success:
+        goto: requirements-review
+        session: stateless
+      on_failure:
+        - condition: insufficient_functional_baseline
+          goto: functional-requirements
+          session: stateful
+          # Backward: stateful — agent remembers the gap it found, can continue from there.
+          notify: "Technical requirements blocked by insufficient functional baseline. Returning to functional requirements."
+
+    - id: requirements-review
+      agent: cbn-2.5-requirements-human-review
+      prompt: .opencode/prompts/cbn-2.5-requirements-human-review.md
+      session: stateless
+      optional: true
+      # User is asked before this stage runs. If skipped, pipeline proceeds to definition.
+      on_success:
+        goto: definition
+        session: stateless
+      on_failure:
+        - condition: unresolvable_conflict
+          goto: user
+          notify: "Requirements contain a conflict that could not be resolved. Human decision required."
+
+    - id: definition
+      agent: cbn-3-definition
+      prompt: .opencode/prompts/cbn-3-definition.md
+      session: stateless
+      # Forward: always fresh — artifact generation must not be biased by a prior failed attempt.
+      optional: false
+      on_success:
+        goto: construction
+        session: stateless
+      on_failure:
+        - condition: contradictory_requirements
+          goto: requirements-review
+          session: stateful
+          # Backward: stateful — agent remembers which contradiction it found.
+          notify: "Definition blocked by contradictory requirements. Returning to requirements review."
+        - condition: incomplete_requirements
+          goto: functional-requirements
+          session: stateful
+          notify: "Definition blocked by missing functional information. Returning to functional requirements."
+
+    - id: construction
+      agent: cbn-4-construction
+      prompt: .opencode/prompts/cbn-4-construction.md
+      session: conditioned
+      condition: |
+        Use stateful if this is a backward transition (returning from review or from a failed
+        construction attempt) — the agent must remember what it already implemented to avoid
+        repeating work and to understand the context of the reported error.
+        Use stateless if this is the first time construction runs for this change, or if the
+        orchestrator has decided to start fresh after a design escalation.
+      optional: false
+      carry_on_backward:
+        - validation-results     # inject failure report when returning from review (artifact id, resolved via openspec)
+      on_success:
+        goto: review
+        session: stateless
+      on_failure:
+        - condition: unresolvable_design_issue
+          goto: definition
+          session: stateless
+          # Forward reset: fresh definition pass — prior design is the problem, don't carry its bias.
+          notify: "Construction blocked by a design issue. Regenerating definition artifacts."
+        - condition: unresolvable_requirement
+          goto: requirements-review
+          session: stateless
+          notify: "Construction flagged an unresolvable requirement. Returning to requirements review."
+        - condition: blocked_needs_human
+          goto: user
+          notify: "Construction is blocked and cannot proceed without human guidance."
+
+    - id: review
+      agent: cbn-5-review
+      prompt: .opencode/prompts/cbn-5-review.md
+      session: stateless
+      # Always fresh — validator must not remember prior runs. Maximum error detection.
+      optional: false
+      on_success:
+        goto: archive
+        session: stateless
+      on_failure:
+        - condition: test_failures
+          goto: construction
+          session: stateful
+          # Backward: stateful — construction agent must remember what it built.
+          carry:
+            - validation-results   # pass the full failure report as additional context (artifact id, resolved via openspec)
+          cycle_policy:
+            max_retries: 3
+            on_max_retries:
+              - condition: design_likely_cause
+                goto: definition
+                session: stateless
+                notify: "Review and construction are cycling. Escalating to definition — design may be the root cause."
+              - condition: requirement_likely_cause
+                goto: requirements-review
+                session: stateless
+                notify: "Review and construction are cycling. Escalating to requirements review — a requirement may be the root cause."
+              - condition: unclear
+                goto: user
+                notify: "Review and construction have cycled {retry_count} times without resolution. Human decision required."
+
+    - id: archive
+      agent: cbn-6-archive
+      prompt: .opencode/prompts/cbn-6-archive.md
+      session: stateless
+      optional: false
+      on_success:
+        goto: done
+      on_failure:
+        - condition: incomplete_artifacts
+          goto: user
+          notify: "Archive blocked: not all artifacts are complete. Human confirmation required."
+
+  # Escalation message templates — used when goto: user is triggered.
+  # {stage}, {reason}, {retry_count}, {options} are interpolated by the orchestrator at runtime.
+  escalation_messages:
+    default: |
+      The pipeline has reached a decision point that requires your input.
+
+      Stage:        {stage}
+      Reason:       {reason}
+      Retry count:  {retry_count}
+
+      Please choose how to proceed:
+      {options}
+    cycle_broken: |
+      The pipeline has cycled {retry_count} times between {stage_a} and {stage_b} without resolution.
+
+      Last known condition: {condition}
+      Last failure summary: see {carry_file}
+
+      Please choose how to proceed:
+      {options}
+
