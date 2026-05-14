@@ -115,4 +115,16 @@ public class JdbcPetRepositoryImpl implements PetRepository {
             .addValue("microchip_id", pet.getMicrochipId());
     }
 
+    @Override
+    public void deletePet(Pet pet) {
+        this.jdbcClient
+            .sql("DELETE FROM visits WHERE pet_id = :petId")
+            .param("petId", pet.getId())
+            .update();
+        this.jdbcClient
+            .sql("DELETE FROM pets WHERE id = :id")
+            .param("id", pet.getId())
+            .update();
+    }
+
 }

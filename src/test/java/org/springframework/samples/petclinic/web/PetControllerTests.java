@@ -18,6 +18,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -173,6 +175,51 @@ class PetControllerTests {
             .andExpect(status().isOk())
             .andExpect(model().attributeHasFieldErrors("pet", "microchipId"))
             .andExpect(view().name("pets/createOrUpdatePetForm"));
+    }
+
+    // ---- Delete pet tests (8.2 – 8.5) ----
+
+    @Test
+    void testDeletePetSuccess() throws Exception {
+        // 8.2: DELETE endpoint returns redirect to owner profile on success
+        Pet pet = new Pet();
+        pet.setId(TEST_PET_ID);
+        given(this.clinicService.findPetById(TEST_PET_ID)).willReturn(pet);
+
+        mockMvc.perform(post("/owners/{ownerId}/pets/{petId}/delete", TEST_OWNER_ID, TEST_PET_ID))
+            .andExpect(status().is3xxRedirection())
+            .andExpect(redirectedUrl("/owners/" + TEST_OWNER_ID));
+
+        verify(this.clinicService).deletePet(pet);
+    }
+
+    @Test
+    void testDeletePetNotFound() throws Exception {
+        // 8.3: DELETE endpoint returns redirect gracefully when pet does not exist
+        given(this.clinicService.findPetById(TEST_PET_ID)).willReturn(null);
+
+        mockMvc.perform(post("/owners/{ownerId}/pets/{petId}/delete", TEST_OWNER_ID, TEST_PET_ID))
+            .andExpect(status().is3xxRedirection())
+            .andExpect(redirectedUrl("/owners/" + TEST_OWNER_ID));
+
+        verify(this.clinicService, never()).deletePet(any(Pet.class));
+    }
+
+    @Test
+    void testDeletePetRequiresPost() throws Exception {
+        // 8.4: CSRF is enforced by Spring Security (not configured in this project).
+        // This test verifies the endpoint is POST-only; a GET returns 405 Method Not Allowed.
+        mockMvc.perform(get("/owners/{ownerId}/pets/{petId}/delete", TEST_OWNER_ID, TEST_PET_ID))
+            .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    void testGetDeleteUrlDoesNotDelete() throws Exception {
+        // 8.5: GET request to delete URL does not perform deletion
+        mockMvc.perform(get("/owners/{ownerId}/pets/{petId}/delete", TEST_OWNER_ID, TEST_PET_ID))
+            .andExpect(status().isMethodNotAllowed());
+
+        verify(this.clinicService, never()).deletePet(any(Pet.class));
     }
 
 }

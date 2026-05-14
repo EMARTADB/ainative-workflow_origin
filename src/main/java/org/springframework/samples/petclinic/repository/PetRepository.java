@@ -56,4 +56,11 @@ public interface PetRepository {
      */
     void save(Pet pet);
 
+    /**
+     * Delete a <code>Pet</code> from the data store, including all associated visits.
+     *
+     * @param pet the <code>Pet</code> to delete
+     */
+    void deletePet(Pet pet);
+
 }
